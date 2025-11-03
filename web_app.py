@@ -131,7 +131,7 @@ def monitor_poll(poll_url: str, phone_number: str, monitor_id: str):
     
     active_monitors[monitor_id]["status"] = "running"
     
-    while active_monitors[monitor_id]["status"] == "running":
+    while monitor_id in active_monitors and active_monitors[monitor_id].get("status") == "running":
         try:
             h = dict(headers)
             if etag:
@@ -202,9 +202,10 @@ def monitor_poll(poll_url: str, phone_number: str, monitor_id: str):
                 monitor_state["last_modified"] = last_modified
                 save_state(state)
                 
-                # Update monitor status
-                active_monitors[monitor_id]["last_check"] = time.time()
-                active_monitors[monitor_id]["last_activity"] = activity_id if activity_id else None
+                # Update monitor status if monitor still exists
+                if monitor_id in active_monitors:
+                    active_monitors[monitor_id]["last_check"] = time.time()
+                    active_monitors[monitor_id]["last_activity"] = activity_id if activity_id else None
             
             time.sleep(interval)
             
@@ -212,7 +213,9 @@ def monitor_poll(poll_url: str, phone_number: str, monitor_id: str):
             print(f"Error monitoring {poll_url}: {e}")
             time.sleep(interval)
     
-    active_monitors[monitor_id]["status"] = "stopped"
+    # Remove monitor from tracking when loop exits (monitor stopped)
+    if monitor_id in active_monitors:
+        del active_monitors[monitor_id]
 
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -501,8 +504,11 @@ def start_monitor():
     import hashlib
     monitor_id = hashlib.md5(f"{poll_url}{phone_number}".encode()).hexdigest()[:12]
     
+    # If monitor already exists and is running, reject the request
     if monitor_id in active_monitors:
-        return jsonify({"success": False, "error": "Monitor already exists for this URL and phone number"}), 400
+        existing_status = active_monitors[monitor_id].get("status", "unknown")
+        if existing_status == "running":
+            return jsonify({"success": False, "error": "Monitor already exists for this URL and phone number"}), 400
     
     # Start monitoring thread
     active_monitors[monitor_id] = {
@@ -522,7 +528,8 @@ def stop_monitor(monitor_id):
     if monitor_id not in active_monitors:
         return jsonify({"success": False, "error": "Monitor not found"}), 404
     
-    active_monitors[monitor_id]["status"] = "stopped"
+    # Delete the monitor instead of marking it as stopped
+    del active_monitors[monitor_id]
     return jsonify({"success": True})
 
 @app.route('/api/monitors', methods=['GET'])
