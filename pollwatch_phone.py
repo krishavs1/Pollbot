@@ -39,6 +39,9 @@ ID_PATTERNS = [
     re.compile(r'id="all_submissions_question_(\d+)"', re.I),  # Text polls: all_submissions_question_933455006
     # Patterns from action URLs (extract question ID - first number)
     re.compile(r'action="/a/questions/(\d+)/responses', re.I),  # Any question response URL (matches both with/without response ID)
+    # Pattern for turbo-frame src URLs (polleverywhere.com links)
+    re.compile(r'src="/multiple_choice_polls/([^"/]+)/respond', re.I),  # Multiple choice polls via polleverywhere.com
+    re.compile(r'src="/text_polls/([^"/]+)/respond', re.I),  # Text polls via polleverywhere.com
     # Generic patterns
     re.compile(r'data-activity-id="([^"]+)"', re.I),
     re.compile(r'name="activity_id"\s+value="([^"]+)"', re.I),

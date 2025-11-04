@@ -95,3 +95,4 @@ The script uses environment variables from `.env`:
 
 MIT
 
+
