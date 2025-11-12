@@ -23,9 +23,16 @@ active_monitors: Dict[str, Dict] = {}
 STATE_FILE = "poll_state.json"
 
 ID_PATTERNS = [
+    # Choice polls: response_root_question_933456047
     re.compile(r'id="response_root_question_(\d+)"', re.I),
+    # Text/open polls: all_submissions_question_933455006
     re.compile(r'id="all_submissions_question_(\d+)"', re.I),
+    # Generic action URL used across poll types
     re.compile(r'action="/a/questions/(\d+)/responses', re.I),
+    # Turbo-frame src URLs for polleverywhere.com flows
+    re.compile(r'src="/multiple_choice_polls/([^"/]+)/respond', re.I),
+    re.compile(r'src="/text_polls/([^"/]+)/respond', re.I),
+    # Other fallbacks
     re.compile(r'data-activity-id="([^"]+)"', re.I),
     re.compile(r'name="activity_id"\s+value="([^"]+)"', re.I),
     re.compile(r'"activityId"\s*:\s*"([^"]+)"', re.I),
@@ -53,15 +60,16 @@ def save_state(state: dict) -> None:
 
 def extract_activity(html: str) -> Tuple[Optional[str], bool, Optional[str]]:
     """Return (activity_id, accepting_flag, title)"""
-    if WAITING_HINT.search(html):
-        return None, False, None
-    
+    respond_present = bool(re.search(r'<turbo-frame[^>]+src="[^"]+/respond', html, re.I))
     activity_id = None
     for pat in ID_PATTERNS:
         m = pat.search(html)
         if m:
             activity_id = m.group(1)
             break
+
+    if not activity_id and WAITING_HINT.search(html) and not respond_present:
+        return None, False, None
 
     title = None
     m_title = re.search(r'<h1[^>]*>([^<]{5,200})</h1>', html, re.I)
@@ -77,6 +85,8 @@ def extract_activity(html: str) -> Tuple[Optional[str], bool, Optional[str]]:
         has_response_forms = bool(re.search(r'(action="/a/questions/\d+/responses|data-input--choice|data-response-to)', html, re.I))
         if has_response_forms:
             accepting = True
+    if not accepting and respond_present:
+        accepting = True
     
     return activity_id, accepting, title
 
@@ -191,6 +201,9 @@ def monitor_poll(poll_url: str, phone_number: str, monitor_id: str):
                     
                     if activity_id and accepting:
                         monitor_state["alerted_accepting_for_id"] = activity_id
+                elif activity_id and not accepting:
+                    if monitor_state.get("alerted_accepting_for_id") == activity_id:
+                        monitor_state["alerted_accepting_for_id"] = None
                 elif not activity_id:
                     # Poll is down - clear state
                     if last_id is not None:

@@ -73,10 +73,8 @@ def extract_activity(html: str) -> Tuple[Optional[str], bool, Optional[str]]:
     Return (activity_id, accepting_flag, title)
     General detection - works for any poll type (text, choice, etc.)
     """
-    # Check if page is waiting (no activity)
-    if WAITING_HINT.search(html):
-        return None, False, None
-    
+    respond_present = bool(re.search(r'<turbo-frame[^>]+src="[^"]+/respond', html, re.I))
+
     activity_id = None
     for pat in ID_PATTERNS:
         m = pat.search(html)
@@ -84,6 +82,11 @@ def extract_activity(html: str) -> Tuple[Optional[str], bool, Optional[str]]:
             # For patterns with multiple groups, use first group (question ID)
             activity_id = m.group(1)
             break
+
+    # If no activity ID could be parsed and the page is still showing the waiting screen,
+    # treat it as inactive. Otherwise continue so we can react to lock/unlock transitions.
+    if not activity_id and WAITING_HINT.search(html) and not respond_present:
+        return None, False, None
 
     # More general title extraction - try various locations
     title = None
@@ -107,6 +110,8 @@ def extract_activity(html: str) -> Tuple[Optional[str], bool, Optional[str]]:
         has_response_forms = bool(re.search(r'(action="/a/questions/\d+/responses|data-input--choice|data-response-to)', html, re.I))
         if has_response_forms:
             accepting = True
+    if not accepting and respond_present:
+        accepting = True
     
     return activity_id, accepting, title
 
@@ -251,6 +256,10 @@ def main():
                     
                     if activity_id and accepting:
                         state["alerted_accepting_for_id"] = activity_id
+                elif activity_id and not accepting:
+                    if state.get("alerted_accepting_for_id") == activity_id:
+                        logging.debug("Activity %s is locked/not accepting; clearing alerted flag", activity_id)
+                        state["alerted_accepting_for_id"] = None
                 elif not activity_id:
                     # Poll is down - clear last_seen_id and alerted_accepting_for_id so we detect when it comes back up
                     # EXACT same logic as Telegram script
